@@ -14,13 +14,13 @@
 
 # TODO:
 #
-# * Read status for all devices periodically if configured to do so.
-# * Send commands periodically if configured to do so (maybe make that
-#   be the default?)
 # * Get shutdown to be error free.
 # * Verify it works with multiple devices.
 # * Verify it works with a pi3hat.
-# * Maybe always request trajectory_complete flag?
+# * Make sample launch file.
+# * Mark dependency on 'moteus' pypi package.
+# * Make the initial "stop" command configurable.
+# * Maybe make query resolution configurable?
 
 import argparse
 import asyncio
@@ -30,7 +30,20 @@ import rclpy
 from rclpy.node import Node
 import threading
 
-from moteus_msgs.msg import PositionCommand
+from moteus_msgs.msg import PositionCommand, ControllerState
+
+QUERY_NAMES = [
+    (moteus.Register.MODE, 'mode'),
+    (moteus.Register.POSITION, 'position'),
+    (moteus.Register.VELOCITY, 'velocity'),
+    (moteus.Register.TORQUE, 'torque'),
+    (moteus.Register.MOTOR_TEMPERATURE, 'motor_temperature'),
+    (moteus.Register.TRAJECTORY_COMPLETE, 'trajectory_complete'),
+    (moteus.Register.HOME_STATE, 'home_state'),
+    (moteus.Register.VOLTAGE, 'voltage'),
+    (moteus.Register.TEMPERATURE, 'temperature'),
+    (moteus.Register.FAULT, 'fault_code'),
+]
 
 
 def _extract(msg):
@@ -50,12 +63,11 @@ class MoteusNode(Node):
 
     def __init__(self, loop):
         super().__init__('moteus_node')
-        self.get_logger().info('Starting')
-
         self.loop = loop
 
         self.declare_parameter('ids', [1])
         self.declare_parameter('args', [''])
+        self.declare_parameter('query_period', 0.02)
 
         asyncio.run_coroutine_threadsafe(self.async_initialize(), self.loop)
 
@@ -69,10 +81,18 @@ class MoteusNode(Node):
         self.transport = moteus.get_singleton_transport(args)
         self.controllers = {}
 
+        query_resolution = moteus.QueryResolution()
+        query_resolution.motor_temperature = moteus.F32
+        query_resolution.trajectory_complete = moteus.INT8
+        query_resolution.home_state = moteus.INT8
+
+
+        self.my_publishers = {}
         self.my_subscriptions = []
         for id in self.get_parameter('ids').value:
             self.controllers[id] = moteus.Controller(
-                transport=self.transport)
+                transport=self.transport,
+                query_resolution=query_resolution)
 
             await self.controllers[id].set_stop()
 
@@ -82,6 +102,15 @@ class MoteusNode(Node):
                     f'id_{id}/position',
                     functools.partial(self.position_command_callback, id),
                     10))
+            self.my_publishers[id] = self.create_publisher(
+                ControllerState, f'id_{id}/state', 10)
+
+        query_period = self.get_parameter('query_period').value
+        if query_period > 0.0:
+            self.timer = self.create_timer(query_period, self.query_callback)
+
+        self.get_logger().info(
+            f'Started with ids {list(self.controllers.keys())}')
 
     def position_command_callback(self, id, msg):
         future = asyncio.run_coroutine_threadsafe(
@@ -90,11 +119,30 @@ class MoteusNode(Node):
 
     async def async_position_command_callback(self, id, msg):
         controller = self.controllers[id]
-        self.get_logger().info(f'Sending cmd {id} {msg}')
-
         await controller.set_position(**_extract(msg))
-        print('command sent2')
-        self.get_logger().info(f'Command sent')
+
+    def query_callback(self):
+        future = asyncio.run_coroutine_threadsafe(
+            self.async_query_callback(), self.loop)
+        future.result()
+
+    async def async_query_callback(self):
+        commands = [
+            x.make_query()
+            for x in self.controllers.values()
+        ]
+        results = await self.transport.cycle(commands)
+        for result in results:
+            publisher = self.my_publishers.get(result.id, None)
+            if publisher is None:
+                continue
+
+            msg = ControllerState()
+            for key, name in QUERY_NAMES:
+                if key in result.values:
+                    setattr(msg, name, result.values[key])
+
+            publisher.publish(msg)
 
 
 def main(args=None):
