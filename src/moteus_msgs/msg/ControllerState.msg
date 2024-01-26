@@ -1,0 +1,10 @@
+uint8 mode
+float32 position
+float32 velocity
+float32 torque
+float32 motor_temperature
+uint8 trajectory_complete
+uint8 home_state
+float32 voltage
+float32 temperature
+uint8 fault_code
