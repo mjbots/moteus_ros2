@@ -12,15 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+'''A ROS2 Node that allows commanding and monitoring one or more moteus
+controllers.
+
+The ROS2 argument args should be populated with command line arguments
+like those passed to tview or moteus_tool in order to specify a
+transport and any transport-specific arguments.  `moteus_tool --help`
+will show what those are in a given installation.
+
+The ROS2 argument 'ids' contains a list of moteus IDs to control.
+'''
+
 # TODO:
 #
 # * Get shutdown to be error free.
-# * Verify it works with multiple devices.
 # * Verify it works with a pi3hat.
 # * Make sample launch file.
 # * Mark dependency on 'moteus' pypi package.
-# * Make the initial "stop" command configurable.
 # * Maybe make query resolution configurable?
+# * make appropriate README with instructions for use
+# * have some timeouts to better handle missing servos
 
 import argparse
 import asyncio
@@ -28,6 +39,8 @@ import functools
 import moteus
 import rclpy
 from rclpy.node import Node
+import std_msgs
+import std_msgs.msg
 import threading
 
 from moteus_msgs.msg import PositionCommand, ControllerState
@@ -59,17 +72,43 @@ def _extract(msg):
     return result
 
 
+# The moteus python library is single threaded and relies on asyncio.
+# rclpy is multi-threaded and calls things from arbitrary threads.  To
+# make those work together, we create a separate thread to run all
+# asyncio things, and associate a single asyncio event loop with that.
+# Then every ROS callback's only job is to enqueue an appropriate
+# function to be invoked in that thread using
+# 'asyncio.run_coroutine_threadsafe'.
+#
+# We assume it is safe to invoke rclpy functions from the asyncio
+# thread.
 class MoteusNode(Node):
-
     def __init__(self, loop):
         super().__init__('moteus_node')
+
+        self.initialize_future = None
         self.loop = loop
 
+        # Which IDs to communicate with.
         self.declare_parameter('ids', [1])
+
+        # Any transport specific arguments, specified as if presented
+        # on the command-line.  For example ["--force-transport",
+        # "fdcanusb"] would require a fdcanusb be used as a transport.
         self.declare_parameter('args', [''])
+
+        # Command are sent as they are received from ROS.  The status
+        # of the servos is queried at a periodic rate, defined by this
+        # parameter.
         self.declare_parameter('query_period', 0.02)
 
-        asyncio.run_coroutine_threadsafe(self.async_initialize(), self.loop)
+        # If we send a "stop" command to each servo upon starting.
+        # This is on by default in order to clear any faults that may
+        # have been present from prior operation.
+        self.declare_parameter('initial_stop', True)
+
+        self.initialize_future = asyncio.run_coroutine_threadsafe(
+            self.async_initialize(), self.loop)
 
     async def async_initialize(self):
         parser = argparse.ArgumentParser()
@@ -88,26 +127,50 @@ class MoteusNode(Node):
 
 
         self.my_publishers = {}
-        self.my_subscriptions = []
-        for id in self.get_parameter('ids').value:
+
+        self.position_subscriptions = []
+        self.stop_subscriptions = []
+        self.brake_subscriptions = []
+
+        initial_stop = self.get_parameter('initial_stop').value
+
+        id_list = self.get_parameter('ids').value
+
+        for id in id_list:
             self.controllers[id] = moteus.Controller(
+                id=id,
                 transport=self.transport,
                 query_resolution=query_resolution)
 
-            await self.controllers[id].set_stop()
+            if initial_stop:
+                await self.controllers[id].set_stop()
 
-            self.my_subscriptions.append(
+            self.position_subscriptions.append(
                 self.create_subscription(
                     PositionCommand,
-                    f'id_{id}/position',
+                    f'id_{id}/command_position',
                     functools.partial(self.position_command_callback, id),
                     10))
+            self.stop_subscriptions.append(
+                self.create_subscription(
+                    std_msgs.msg.Empty,
+                    f'id_{id}/command_stop',
+                    functools.partial(self.stop_command_callback, id),
+                    10))
+            self.brake_subscriptions.append(
+                self.create_subscription(
+                    std_msgs.msg.Empty,
+                    f'id_{id}/command_brake',
+                    functools.partial(self.brake_command_callback, id),
+                    10))
+
             self.my_publishers[id] = self.create_publisher(
                 ControllerState, f'id_{id}/state', 10)
 
         query_period = self.get_parameter('query_period').value
         if query_period > 0.0:
-            self.timer = self.create_timer(query_period, self.query_callback)
+            self.timer = self.create_timer(
+                query_period, self.query_callback)
 
         self.get_logger().info(
             f'Started with ids {list(self.controllers.keys())}')
@@ -120,6 +183,24 @@ class MoteusNode(Node):
     async def async_position_command_callback(self, id, msg):
         controller = self.controllers[id]
         await controller.set_position(**_extract(msg))
+
+    def stop_command_callback(self, id, msg):
+        future = asyncio.run_coroutine_threadsafe(
+            self.async_stop_command_callback(id, msg), self.loop)
+        future.result()
+
+    async def async_stop_command_callback(self, id, msg):
+        controller = self.controllers[id]
+        await controller.set_stop()
+
+    def brake_command_callback(self, id, msg):
+        future = asyncio.run_coroutine_threadsafe(
+            self.async_brake_command_callback(id, msg), self.loop)
+        future.result()
+
+    async def async_brake_command_callback(self, id, msg):
+        controller = self.controllers[id]
+        await controller.set_brake()
 
     def query_callback(self):
         future = asyncio.run_coroutine_threadsafe(
@@ -157,6 +238,11 @@ def main(args=None):
         loop.run_forever()
     finally:
         loop.close()
+
+        if node.initialize_future:
+            # So that we'll see any errors that happen during
+            # initialization.
+            node.initialize_future.result()
 
         # Destroy the node explicitly
         # (optional - otherwise it will be done automatically
