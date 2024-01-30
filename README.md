@@ -5,6 +5,8 @@ This contains a ROS2 node for communication with mjbots moteus controllers.
 - https://mjbots.com
 - https://github.com/mjbots/moteus
 
+License: Apache 2.0
+
 # Getting started
 
 ## Installation
