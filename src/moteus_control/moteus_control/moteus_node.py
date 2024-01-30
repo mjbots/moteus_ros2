@@ -33,7 +33,6 @@ than the configured watchdog, or change or disable the watchdog.
 
 # TODO:
 #
-# * Get shutdown to be error free.
 # * have some timeouts to better handle missing servos
 
 import argparse

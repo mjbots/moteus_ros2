@@ -110,7 +110,7 @@ These can be sent with something of the form:
 ros2 topic pub -1 /moteus/id_1/cmd_set_output_exact std_msgs/msg/Float32 "{data: 0.5}"
 ```
 
-# Operation with the pi3hat #
+# Operation with the pi3hat
 
 For usage with the pi3hat, the easiest method is to run the entirety
 of the ROS2 session as root.  That can be accomplished by running
@@ -122,6 +122,19 @@ sudo bash
 source /opt/ros/iron/setup.sh
 source ./install/local.bash
 ```
+
+# Caveats
+
+Currently the resolution of the command and query results cannot be
+changed.
+
+The maximum achievable performance of a system in terms of update rate
+using this node will be much lower than a dedicated process.  The
+dedicated process is able to combine commands and queries for all
+servos into a single cycle, and control the resolution of all commands
+and responses.  If you need a fast update rate (>100Hz), consider not
+using ROS2 and instead directly using either the moteus python or C++
+library.
 
 # Reference
 
