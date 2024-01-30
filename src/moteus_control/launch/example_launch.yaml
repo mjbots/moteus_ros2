@@ -1,0 +1,11 @@
+launch:
+
+- node:
+    pkg: "moteus_control"
+    exec: "moteus_node"
+    name: "moteus_node"
+    namespace: "moteus"
+    param:
+    -
+      name: "ids"
+      value: [1]
