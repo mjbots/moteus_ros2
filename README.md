@@ -110,6 +110,19 @@ These can be sent with something of the form:
 ros2 topic pub -1 /moteus/id_1/cmd_set_output_exact std_msgs/msg/Float32 "{data: 0.5}"
 ```
 
+# Operation with the pi3hat #
+
+For usage with the pi3hat, the easiest method is to run the entirety
+of the ROS2 session as root.  That can be accomplished by running
+`sudo bash` before sourcing the ROS2 setup profiles.  An example is
+below:
+
+```
+sudo bash
+source /opt/ros/iron/setup.sh
+source ./install/local.bash
+```
+
 # Reference
 
 The semantics of all commands are identical to that found in the primary moteus reference documentation: https://github.com/mjbots/moteus/blob/main/docs/reference.md

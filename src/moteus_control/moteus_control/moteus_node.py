@@ -34,7 +34,6 @@ than the configured watchdog, or change or disable the watchdog.
 # TODO:
 #
 # * Get shutdown to be error free.
-# * Verify it works with a pi3hat.
 # * have some timeouts to better handle missing servos
 
 import argparse
