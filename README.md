@@ -70,9 +70,13 @@ ros2 topic pub -r 50 /moteus/id_1/cmd_position moteus_msgs/msg/PositionCommand "
 Note that the ROS2 node only sends commands to moteus when it receives
 them from ROS.  Thus you need to either:
 
-a) Send ROS commands faster than the configured watchdog timeout period (0.1s by default)
-b) Change `servo.default_timeout_s` to `nan` if you want it disabled
-c) Temporarily override the watchdog timeout on a per-command basis like the following:
+a. Send ROS commands faster than the configured watchdog timeout
+period (0.1s by default)
+
+b. Change `servo.default_timeout_s` to `nan` if you want it disabled
+
+c. Temporarily override the watchdog timeout on a per-command basis
+like the following:
 
 ```
 ros2 topic pub /moteus/id_1/cmd_position moteus_msgs/msg/PositionCommand "{position: [0.5], accel_limit: [5], watchog_timeout:[.NAN]}"
