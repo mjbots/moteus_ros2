@@ -33,11 +33,9 @@ than the configured watchdog, or change or disable the watchdog.
 
 # TODO:
 #
-# * Add support for other commands like rezero, recapture
 # * Get shutdown to be error free.
 # * Verify it works with a pi3hat.
 # * Make sample launch file.
-# * Maybe make query resolution configurable?
 # * make appropriate README with instructions for use
 # * have some timeouts to better handle missing servos
 
@@ -136,9 +134,7 @@ class MoteusNode(Node):
 
         self.my_publishers = {}
 
-        self.position_subscriptions = []
-        self.stop_subscriptions = []
-        self.brake_subscriptions = []
+        self.my_subscriptions = []
 
         initial_stop = self.get_parameter('initial_stop').value
 
@@ -153,24 +149,28 @@ class MoteusNode(Node):
             if initial_stop:
                 await self.controllers[id].set_stop()
 
-            self.position_subscriptions.append(
-                self.create_subscription(
-                    PositionCommand,
-                    f'id_{id}/command_position',
-                    functools.partial(self.position_command_callback, id),
-                    10))
-            self.stop_subscriptions.append(
-                self.create_subscription(
-                    std_msgs.msg.Empty,
-                    f'id_{id}/command_stop',
-                    functools.partial(self.stop_command_callback, id),
-                    10))
-            self.brake_subscriptions.append(
-                self.create_subscription(
-                    std_msgs.msg.Empty,
-                    f'id_{id}/command_brake',
-                    functools.partial(self.brake_command_callback, id),
-                    10))
+            CALLBACKS = [
+                (PositionCommand, 'cmd_position',
+                 self.position_command_callback),
+                (std_msgs.msg.Empty, 'cmd_stop',
+                 self.stop_command_callback),
+                (std_msgs.msg.Empty, 'cmd_brake',
+                 self.brake_command_callback),
+                (std_msgs.msg.Float32, 'cmd_set_output_exact',
+                 self.set_output_exact_callback),
+                (std_msgs.msg.Float32, 'cmd_set_output_nearest',
+                 self.set_output_nearest_callback),
+                (std_msgs.msg.Empty, 'cmd_recapture_position_velocity',
+                 self.recapture_position_velocity_callback),
+            ]
+
+            for message, name, callback in CALLBACKS:
+                self.my_subscriptions.append(
+                    self.create_subscription(
+                        message,
+                        f'id_{id}/{name}',
+                        functools.partial(callback, id),
+                        10))
 
             self.my_publishers[id] = self.create_publisher(
                 ControllerState, f'id_{id}/state', 10)
@@ -209,6 +209,33 @@ class MoteusNode(Node):
     async def async_brake_command_callback(self, id, msg):
         controller = self.controllers[id]
         await controller.set_brake()
+
+    def set_output_exact_callback(self, id, msg):
+        future = asyncio.run_coroutine_threadsafe(
+            self.async_set_output_exact_callback(id, msg), self.loop)
+        future.result()
+
+    async def async_set_output_exact_callback(self, id, msg):
+        controller = self.controllers[id]
+        await controller.set_output_exact(position=msg.data)
+
+    def set_output_nearest_callback(self, id, msg):
+        future = asyncio.run_coroutine_threadsafe(
+            self.async_set_output_nearest_callback(id, msg), self.loop)
+        future.result()
+
+    async def async_set_output_nearest_callback(self, id, msg):
+        controller = self.controllers[id]
+        await controller.set_output_nearest(position=msg.data)
+
+    def recapture_position_velocity_callback(self, id, msg):
+        future = asyncio.run_coroutine_threadsafe(
+            self.async_recapture_position_velocity_callback(id, msg), self.loop)
+        future.result()
+
+    async def async_recapture_position_velocity_callback(self, id, msg):
+        controller = self.controllers[id]
+        await controller.set_recapture_position_velocity()
 
     def query_callback(self):
         future = asyncio.run_coroutine_threadsafe(
