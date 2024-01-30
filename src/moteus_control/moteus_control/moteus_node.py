@@ -65,7 +65,7 @@ QUERY_NAMES = [
 ]
 
 
-def _extract(msg):
+def _extract_position_command(msg):
     result = {}
     for key in msg.__slots__:
         if not key.startswith('_'):
@@ -76,6 +76,14 @@ def _extract(msg):
         if len(maybe_value) >= 1:
             result[key[1:]] = maybe_value[0]
     return result
+
+
+def _extract_empty(msg):
+    return {}
+
+
+def _extract_single_position(msg):
+    return {'position': msg.data}
 
 
 # The moteus python library is single threaded and relies on asyncio.
@@ -151,25 +159,33 @@ class MoteusNode(Node):
 
             CALLBACKS = [
                 (PositionCommand, 'cmd_position',
-                 self.position_command_callback),
+                 moteus.Controller.set_position,
+                 _extract_position_command),
                 (std_msgs.msg.Empty, 'cmd_stop',
-                 self.stop_command_callback),
+                 moteus.Controller.set_stop,
+                 _extract_empty),
                 (std_msgs.msg.Empty, 'cmd_brake',
-                 self.brake_command_callback),
+                 moteus.Controller.set_brake,
+                 _extract_empty),
                 (std_msgs.msg.Float32, 'cmd_set_output_exact',
-                 self.set_output_exact_callback),
+                 moteus.Controller.set_output_exact,
+                 _extract_single_position),
                 (std_msgs.msg.Float32, 'cmd_set_output_nearest',
-                 self.set_output_nearest_callback),
+                 moteus.Controller.set_output_nearest,
+                 _extract_single_position),
                 (std_msgs.msg.Empty, 'cmd_recapture_position_velocity',
-                 self.recapture_position_velocity_callback),
+                 moteus.Controller.set_recapture_position_velocity,
+                 _extract_empty),
             ]
 
-            for message, name, callback in CALLBACKS:
+            for message, name, moteus_command, extract in CALLBACKS:
                 self.my_subscriptions.append(
                     self.create_subscription(
                         message,
                         f'id_{id}/{name}',
-                        functools.partial(callback, id),
+                        functools.partial(
+                            self.command_callback,
+                            id, moteus_command, extract),
                         10))
 
             self.my_publishers[id] = self.create_publisher(
@@ -183,59 +199,15 @@ class MoteusNode(Node):
         self.get_logger().info(
             f'Started with ids {list(self.controllers.keys())}')
 
-    def position_command_callback(self, id, msg):
+    def command_callback(self, id, moteus_command, extract, msg):
         future = asyncio.run_coroutine_threadsafe(
-            self.async_position_command_callback(id, msg), self.loop)
+            self.async_command_callback(id, moteus_command, extract, msg),
+            self.loop)
         future.result()
 
-    async def async_position_command_callback(self, id, msg):
+    async def async_command_callback(self, id, moteus_command, extract, msg):
         controller = self.controllers[id]
-        await controller.set_position(**_extract(msg))
-
-    def stop_command_callback(self, id, msg):
-        future = asyncio.run_coroutine_threadsafe(
-            self.async_stop_command_callback(id, msg), self.loop)
-        future.result()
-
-    async def async_stop_command_callback(self, id, msg):
-        controller = self.controllers[id]
-        await controller.set_stop()
-
-    def brake_command_callback(self, id, msg):
-        future = asyncio.run_coroutine_threadsafe(
-            self.async_brake_command_callback(id, msg), self.loop)
-        future.result()
-
-    async def async_brake_command_callback(self, id, msg):
-        controller = self.controllers[id]
-        await controller.set_brake()
-
-    def set_output_exact_callback(self, id, msg):
-        future = asyncio.run_coroutine_threadsafe(
-            self.async_set_output_exact_callback(id, msg), self.loop)
-        future.result()
-
-    async def async_set_output_exact_callback(self, id, msg):
-        controller = self.controllers[id]
-        await controller.set_output_exact(position=msg.data)
-
-    def set_output_nearest_callback(self, id, msg):
-        future = asyncio.run_coroutine_threadsafe(
-            self.async_set_output_nearest_callback(id, msg), self.loop)
-        future.result()
-
-    async def async_set_output_nearest_callback(self, id, msg):
-        controller = self.controllers[id]
-        await controller.set_output_nearest(position=msg.data)
-
-    def recapture_position_velocity_callback(self, id, msg):
-        future = asyncio.run_coroutine_threadsafe(
-            self.async_recapture_position_velocity_callback(id, msg), self.loop)
-        future.result()
-
-    async def async_recapture_position_velocity_callback(self, id, msg):
-        controller = self.controllers[id]
-        await controller.set_recapture_position_velocity()
+        await moteus_command(controller, **extract(msg))
 
     def query_callback(self):
         future = asyncio.run_coroutine_threadsafe(
