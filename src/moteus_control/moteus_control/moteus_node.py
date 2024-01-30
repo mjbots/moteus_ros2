@@ -21,14 +21,22 @@ transport and any transport-specific arguments.  `moteus_tool --help`
 will show what those are in a given installation.
 
 The ROS2 argument 'ids' contains a list of moteus IDs to control.
+
+NOTE: Commands are only sent to moteus when they are received via ROS.
+That means that if you have a watchdog timeout configured with
+`servo.default_timeout_s` (the default is 0.1), then you must send ROS
+commands at least that often or the servo will enter the position
+timeout state.  To avoid this, either send ROS commands more often
+than the configured watchdog, or change or disable the watchdog.
+
 '''
 
 # TODO:
 #
+# * Add support for other commands like rezero, recapture
 # * Get shutdown to be error free.
 # * Verify it works with a pi3hat.
 # * Make sample launch file.
-# * Mark dependency on 'moteus' pypi package.
 # * Maybe make query resolution configurable?
 # * make appropriate README with instructions for use
 # * have some timeouts to better handle missing servos
