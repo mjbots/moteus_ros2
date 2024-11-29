@@ -79,7 +79,7 @@ c. Temporarily override the watchdog timeout on a per-command basis
 like the following:
 
 ```
-ros2 topic pub /moteus/id_1/cmd_position moteus_msgs/msg/PositionCommand "{position: [0.5], accel_limit: [5], watchog_timeout:[.NAN]}"
+ros2 topic pub /moteus/id_1/cmd_position moteus_msgs/msg/PositionCommand "{position: [0.5], accel_limit: [5], watchdog_timeout:[.NAN]}"
 ```
 
 4. Send a command that requires no arguments.  The possible options
